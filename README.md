@@ -1,5 +1,5 @@
 # MoodPal
 A mental health dashboard for NeuraHack at DEMUX 2.0.
-Features: Multimodal emotion detection (text + emoji), mood trends, adaptive suggestions, enhanced UI.
-Status: Dataset downloaded, model trained, dashboard with all features and UI improvements.
-Next Steps: Test thoroughly, prepare presentation, optimize for hackathon demo.
+Features: Robust multimodal emotion detection (text + emoji with keyword-based sadness detection), adaptive suggestions with carousel, color-coded mood trends with mini chart, polished UI with animated mood indicator, styled history panel, and enhanced badges.
+Status: Full dashboard with fixed sadness detection, resolved ValueError, styled badges, mini mood trend chart.
+Next Steps: Extensive testing, performance optimization, pitch preparation.

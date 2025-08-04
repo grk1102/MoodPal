@@ -9,6 +9,7 @@ import plotly.express as px
 import base64
 import os
 import re
+from datetime import datetime
 
 # Initialize VADER
 sid = SentimentIntensityAnalyzer()
@@ -72,14 +73,27 @@ strategies = {
 }
 
 # Load model and vectorizer
-try:
+@st.cache_resource
+def load_model():
     with open("moodpal_model.pkl", "rb") as f:
-        model = pickle.load(f)
+        return pickle.load(f)
+
+@st.cache_resource
+def load_vectorizer():
     with open("moodpal_vectorizer.pkl", "rb") as f:
-        vectorizer = pickle.load(f)
+        return pickle.load(f)
+
+try:
+    model = load_model()
+    vectorizer = load_vectorizer()
 except FileNotFoundError:
     st.error("Model or vectorizer file not found. Please run train_model.py first.")
     st.stop()
+
+# Cache VADER analysis
+@st.cache_data
+def get_vader_scores(text):
+    return sid.polarity_scores(text)
 
 # Function to encode image for background
 def get_base64_image(image_path):
@@ -167,7 +181,12 @@ if background_image:
             font-size: 40px;
             text-align: center;
             margin-top: 10px;
-            color: #4CAF50;
+            animation: pulse 1.5s infinite;
+        }}
+        @keyframes pulse {{
+            0% {{ transform: scale(1); }}
+            50% {{ transform: scale(1.1); }}
+            100% {{ transform: scale(1); }}
         }}
         .debug-text {{
             color: #6B7280;
@@ -180,6 +199,12 @@ if background_image:
             border-radius: 10px;
             margin-top: 20px;
             border: 1px solid #4CAF50;
+            font-size: 16px;
+        }}
+        .history-item:nth-child(even) {{
+            background-color: #E8F5E9;
+            padding: 5px;
+            border-radius: 5px;
         }}
         .stButton>button {{
             background-color: #4CAF50;
@@ -193,6 +218,11 @@ if background_image:
             background-color: #388E3C;
             box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
             transform: translateY(-2px);
+        }}
+        .suggestion-button:hover {{
+            background-color: #388E3C !important;
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+            transform: scale(1.05);
         }}
         .stTextArea>label {{
             font-size: 18px;
@@ -208,6 +238,7 @@ if background_image:
             border-radius: 8px;
             text-align: center;
             animation: bounceIn 0.5s ease-in;
+            box-shadow: 0 0 15px rgba(216, 27, 96, 0.7);
         }}
         @keyframes bounceIn {{
             0% {{ transform: scale(0.8); opacity: 0; }}
@@ -217,6 +248,13 @@ if background_image:
             margin-top: 10px;
             font-size: 16px;
             color: #388E3C;
+        }}
+        .mini-chart {{
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #F1F8E9;
+            border-radius: 10px;
+            border: 1px solid #4CAF50;
         }}
         </style>
         """,
@@ -253,6 +291,11 @@ with st.container():
         st.session_state.mood_scores = []
         st.session_state.emotions = []
         st.session_state.inputs = []
+        st.session_state.timestamps = []
+        st.session_state.suggestion_index = 0
+
+    # Keyword-based sadness detection
+    sadness_keywords = ["down", "sad", "tough", "stress", "overwhelm", "fail", "struggle"]
 
     # Stage 0: Initial input
     if st.session_state.stage == 0:
@@ -261,6 +304,36 @@ with st.container():
             if user_input.strip():
                 st.session_state.texts.append(user_input)
                 st.session_state.inputs.append(user_input[:50] + "..." if len(user_input) > 50 else user_input)
+                st.session_state.timestamps.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                # Perform emotion prediction
+                combined_text = user_input
+                emojis = [c for c in combined_text if c in emoji.EMOJI_DATA]
+                emoji_score = sum(emoji_sentiment.get(e, 0) for e in emojis) / (len(emojis) + 1)
+                cleaned_input = re.sub(r'[^a-z\s]', '', combined_text.lower())
+                input_vec = vectorizer.transform([cleaned_input])
+                text_emotion = model.predict(input_vec)[0]
+                vader_scores = get_vader_scores(combined_text)
+                text_score = vader_scores['compound']
+                final_score = 0.4 * text_score + 0.6 * emoji_score
+                score_to_emotion = {
+                    (-1.0, -0.03): "sadness",
+                    (-0.03, -0.01): "fear",
+                    (-0.01, 0.01): "surprise",
+                    (0.01, 0.15): "love",
+                    (0.15, 1.0): "joy",
+                }
+                final_emotion = text_emotion
+                if any(e in ["😢", "😞", "😣", "😓"] for e in emojis) and vader_scores['neg'] > 0.03:
+                    final_emotion = "sadness"
+                elif any(keyword in combined_text.lower() for keyword in sadness_keywords):
+                    final_emotion = "sadness"
+                else:
+                    for (low, high), emotion in score_to_emotion.items():
+                        if low <= final_score <= high:
+                            final_emotion = emotion
+                            break
+                st.session_state.mood_scores.append(final_score)
+                st.session_state.emotions.append(final_emotion)
                 st.session_state.stage = 1
                 st.session_state.interactions += 1
             else:
@@ -274,6 +347,36 @@ with st.container():
             if follow_up.strip():
                 st.session_state.texts.append(follow_up)
                 st.session_state.inputs.append(follow_up[:50] + "..." if len(follow_up) > 50 else follow_up)
+                st.session_state.timestamps.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                # Perform emotion prediction with weighted follow-up
+                combined_text = f"{st.session_state.texts[0]} {follow_up} {follow_up}"  # Double weight for follow-up
+                emojis = [c for c in combined_text if c in emoji.EMOJI_DATA]
+                emoji_score = sum(emoji_sentiment.get(e, 0) for e in emojis) / (len(emojis) + 1)
+                cleaned_input = re.sub(r'[^a-z\s]', '', combined_text.lower())
+                input_vec = vectorizer.transform([cleaned_input])
+                text_emotion = model.predict(input_vec)[0]
+                vader_scores = get_vader_scores(combined_text)
+                text_score = vader_scores['compound']
+                final_score = 0.4 * text_score + 0.6 * emoji_score
+                score_to_emotion = {
+                    (-1.0, -0.03): "sadness",
+                    (-0.03, -0.01): "fear",
+                    (-0.01, 0.01): "surprise",
+                    (0.01, 0.15): "love",
+                    (0.15, 1.0): "joy",
+                }
+                final_emotion = text_emotion
+                if any(e in ["😢", "😞", "😣", "😓"] for e in emojis) and vader_scores['neg'] > 0.03:
+                    final_emotion = "sadness"
+                elif any(keyword in combined_text.lower() for keyword in sadness_keywords):
+                    final_emotion = "sadness"
+                else:
+                    for (low, high), emotion in score_to_emotion.items():
+                        if low <= final_score <= high:
+                            final_emotion = emotion
+                            break
+                st.session_state.mood_scores.append(final_score)
+                st.session_state.emotions.append(final_emotion)
                 st.session_state.stage = 2
                 st.session_state.interactions += 1
             else:
@@ -281,37 +384,35 @@ with st.container():
 
     # Stage 2: Prediction and suggestion
     elif st.session_state.stage == 2:
-        if not st.session_state.texts:
-            st.error("No input data available. Please start over.")
+        if not st.session_state.texts or len(st.session_state.texts) != len(st.session_state.inputs) or len(st.session_state.inputs) != len(st.session_state.timestamps):
+            st.error("Session data corrupted. Please start over.")
             st.session_state.stage = 0
             st.session_state.texts = []
             st.session_state.mood_scores = []
             st.session_state.emotions = []
             st.session_state.inputs = []
+            st.session_state.timestamps = []
         else:
-            combined_text = " ".join(st.session_state.texts)
-            # Emoji analysis
+            combined_text = f"{st.session_state.texts[0]} {st.session_state.texts[1]} {st.session_state.texts[1]}"  # Double weight for follow-up
             emojis = [c for c in combined_text if c in emoji.EMOJI_DATA]
             emoji_score = sum(emoji_sentiment.get(e, 0) for e in emojis) / (len(emojis) + 1)
-            # Text prediction
             cleaned_input = re.sub(r'[^a-z\s]', '', combined_text.lower())
             input_vec = vectorizer.transform([cleaned_input])
             text_emotion = model.predict(input_vec)[0]
-            vader_scores = sid.polarity_scores(combined_text)
+            vader_scores = get_vader_scores(combined_text)
             text_score = vader_scores['compound']
-            # Combine scores
             final_score = 0.4 * text_score + 0.6 * emoji_score
-            # Map score to emotion
             score_to_emotion = {
-                (-1.0, -0.1): "sadness",
-                (-0.1, -0.05): "fear",
-                (-0.05, 0.05): "surprise",
-                (0.05, 0.15): "love",
+                (-1.0, -0.03): "sadness",
+                (-0.03, -0.01): "fear",
+                (-0.01, 0.01): "surprise",
+                (0.01, 0.15): "love",
                 (0.15, 1.0): "joy",
             }
             final_emotion = text_emotion
-            # Prioritize emoji-driven sadness
-            if any(e in ["😢", "😞", "😣", "😓"] for e in emojis) and vader_scores['neg'] > 0.1:
+            if any(e in ["😢", "😞", "😣", "😓"] for e in emojis) and vader_scores['neg'] > 0.03:
+                final_emotion = "sadness"
+            elif any(keyword in combined_text.lower() for keyword in sadness_keywords):
                 final_emotion = "sadness"
             else:
                 for (low, high), emotion in score_to_emotion.items():
@@ -329,10 +430,6 @@ with st.container():
                     unsafe_allow_html=True
                 )
             
-            # Store emotion and score
-            st.session_state.emotions.append(final_emotion)
-            st.session_state.mood_scores.append(final_score)
-            
             # Display mood indicator
             mood_emoji = {"sadness": "😢", "joy": "😊", "love": "😍", "anger": "😡", "fear": "😱", "surprise": "😮"}
             mood_color = {"sadness": "#1E88E5", "joy": "#4CAF50", "love": "#D81B60", "anger": "#F57C00", "fear": "#6B7280", "surprise": "#9C27B0"}
@@ -348,73 +445,127 @@ with st.container():
                 st.markdown(f"**Emojis Detected**: {emojis} (Score: {emoji_score:.2f})")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Get suggestion (highest-weighted)
+            # Suggestion carousel
             suggestion_key = (final_emotion.lower(), context)
             suggestion_list = strategies.get(suggestion_key, [{"text": "Stay balanced!", "weight": 1.0}])
-            suggestion = max(suggestion_list, key=lambda x: x["weight"])["text"]
+            suggestion_list = sorted(suggestion_list, key=lambda x: x["weight"], reverse=True)
+            if 'suggestion_index' not in st.session_state:
+                st.session_state.suggestion_index = 0
+            suggestion = suggestion_list[st.session_state.suggestion_index]["text"]
             st.markdown(f'<div class="suggestion-text">Suggestion: {suggestion}</div>', unsafe_allow_html=True)
-            
-            # Feedback for adaptive suggestions
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns([1, 1, 1])
             with col1:
-                if st.button("👍 Helpful", key="helpful"):
+                if st.button("Next Suggestion", key="next_suggestion", help="View another suggestion"):
+                    st.session_state.suggestion_index = (st.session_state.suggestion_index + 1) % len(suggestion_list)
+            with col2:
+                if st.button("👍 Helpful", key="helpful", help="Mark suggestion as helpful"):
                     for s in suggestion_list:
                         if s["text"] == suggestion:
                             s["weight"] += 0.1
                     st.markdown("Thanks for the feedback!")
-            with col2:
-                if st.button("👎 Not Helpful", key="not_helpful"):
+            with col3:
+                if st.button("👎 Not Helpful", key="not_helpful", help="Mark suggestion as not helpful"):
                     for s in suggestion_list:
                         if s["text"] == suggestion:
                             s["weight"] -= 0.1
                     st.markdown("We'll try a better suggestion next time!")
             
+            # Mini mood trend chart (always visible, collapsible)
+            if st.session_state.mood_scores:
+                with st.expander("Mood Trend Preview", expanded=True):
+                    st.markdown('<div class="mini-chart">', unsafe_allow_html=True)
+                    df = pd.DataFrame({
+                        "Interaction": range(1, len(st.session_state.mood_scores) + 1),
+                        "Mood Score": st.session_state.mood_scores,
+                        "Emotion": st.session_state.emotions,
+                        "Input": st.session_state.inputs,
+                        "Timestamp": st.session_state.timestamps
+                    })
+                    emotion_colors = {
+                        "sadness": "#1E88E5",
+                        "joy": "#4CAF50",
+                        "love": "#D81B60",
+                        "anger": "#F57C00",
+                        "fear": "#6B7280",
+                        "surprise": "#9C27B0"
+                    }
+                    fig = px.line(
+                        df,
+                        x="Interaction",
+                        y="Mood Score",
+                        text="Emotion",
+                        labels={"Mood Score": "Mood Score (-1 to 1)"},
+                        title="Mood Trend Preview",
+                        template="plotly_white",
+                        color="Emotion",
+                        color_discrete_map=emotion_colors,
+                        hover_data=["Input", "Timestamp"]
+                    )
+                    fig.update_traces(mode="lines+markers+text", textposition="top center", line_width=2, marker=dict(size=8))
+                    fig.update_layout(
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(family="Arial", size=12, color="#2E7D32"),
+                        showlegend=True,
+                        hovermode="x unified",
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        height=250
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Full mood trend chart
+            if st.button("View Full Mood Trend"):
+                if (len(st.session_state.mood_scores) == len(st.session_state.emotions) == 
+                    len(st.session_state.inputs) == len(st.session_state.timestamps)):
+                    with st.spinner("Generating mood trend..."):
+                        df = pd.DataFrame({
+                            "Interaction": range(1, len(st.session_state.mood_scores) + 1),
+                            "Mood Score": st.session_state.mood_scores,
+                            "Emotion": st.session_state.emotions,
+                            "Input": st.session_state.inputs,
+                            "Timestamp": st.session_state.timestamps
+                        })
+                        emotion_colors = {
+                            "sadness": "#1E88E5",
+                            "joy": "#4CAF50",
+                            "love": "#D81B60",
+                            "anger": "#F57C00",
+                            "fear": "#6B7280",
+                            "surprise": "#9C27B0"
+                        }
+                        fig = px.line(
+                            df,
+                            x="Interaction",
+                            y="Mood Score",
+                            text="Emotion",
+                            labels={"Mood Score": "Mood Score (-1 to 1)"},
+                            title="Your Mood Trend",
+                            template="plotly_white",
+                            color="Emotion",
+                            color_discrete_map=emotion_colors,
+                            hover_data=["Input", "Timestamp"]
+                        )
+                        fig.update_traces(mode="lines+markers+text", textposition="top center", line_width=2.5, marker=dict(size=10))
+                        fig.update_layout(
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            font=dict(family="Arial", size=14, color="#2E7D32"),
+                            showlegend=True,
+                            hovermode="x unified",
+                            margin=dict(l=20, r=20, t=50, b=20)
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("Mood trend data is incomplete. Please complete the current interaction or start over.")
+            
             # History panel
             if st.session_state.inputs:
                 st.markdown('<div class="history-panel">', unsafe_allow_html=True)
                 st.markdown("**Your Mood History**")
-                for i, (input_text, emotion) in enumerate(zip(st.session_state.inputs, st.session_state.emotions), 1):
-                    st.markdown(f"**Interaction {i}**: {input_text} → {emotion.capitalize()}")
+                for i, (input_text, emotion, timestamp) in enumerate(zip(st.session_state.inputs, st.session_state.emotions, st.session_state.timestamps), 1):
+                    st.markdown(f'<div class="history-item">**Interaction {i}** ({timestamp}): {input_text} → {emotion.capitalize()}</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Mood trend chart
-            if st.button("View Mood Trend"):
-                df = pd.DataFrame({
-                    "Interaction": range(1, len(st.session_state.mood_scores) + 1),
-                    "Mood Score": st.session_state.mood_scores,
-                    "Emotion": st.session_state.emotions,
-                    "Input": st.session_state.inputs
-                })
-                emotion_colors = {
-                    "sadness": "#1E88E5",
-                    "joy": "#4CAF50",
-                    "love": "#D81B60",
-                    "anger": "#F57C00",
-                    "fear": "#6B7280",
-                    "surprise": "#9C27B0"
-                }
-                fig = px.line(
-                    df,
-                    x="Interaction",
-                    y="Mood Score",
-                    text="Emotion",
-                    labels={"Mood Score": "Mood Score (-1 to 1)"},
-                    title="Your Mood Trend",
-                    template="plotly_white",
-                    color="Emotion",
-                    color_discrete_map=emotion_colors,
-                    hover_data=["Input"]
-                )
-                fig.update_traces(mode="lines+markers+text", textposition="top center", line_width=2.5, marker=dict(size=10))
-                fig.update_layout(
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font=dict(family="Arial", size=14, color="#2E7D32"),
-                    showlegend=True,
-                    hovermode="x unified",
-                    margin=dict(l=20, r=20, t=50, b=20)
-                )
-                st.plotly_chart(fig, use_container_width=True)
             
             # Gamification
             progress = min(st.session_state.interactions / 5, 1.0)
@@ -428,6 +579,10 @@ with st.container():
             if st.button("Start Over"):
                 st.session_state.stage = 0
                 st.session_state.texts = []
+                st.session_state.mood_scores = []
+                st.session_state.emotions = []
                 st.session_state.inputs = []
+                st.session_state.timestamps = []
+                st.session_state.suggestion_index = 0
 
     st.markdown('</div>', unsafe_allow_html=True)
