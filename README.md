@@ -1,4 +1,4 @@
-### MoodPal
+# MoodPal
 
 **MoodPal README**
 
