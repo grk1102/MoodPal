@@ -2,10 +2,10 @@
 
 ## **MoodPal README**
 
-# **Project Overview**  
+### **Project Overview**  
 MoodPal is a mental health companion application built with Streamlit that helps users track and understand their emotions through a user-friendly dashboard. It uses natural language processing (NLP) and sentiment analysis to detect emotions from text input, offers personalized coping strategies, and includes gamification elements to encourage regular use. The app is designed for both students and professionals, providing a supportive tool for mental well-being.
 
-# **Features**  
+### **Features**  
 - **Emotion Detection**: Analyzes user input (text and emojis) to identify emotions such as sadness, joy, love, anger, fear, and surprise with intensity levels (mild/strong).  
 - **Mood Journal**: Allows users to export a PDF log of their mood entries with timestamps.  
 - **Gamification**: Tracks interaction streaks and awards badges (e.g., Mood Explorer at 3 interactions, Consistency Star at 5 days).  
@@ -13,14 +13,14 @@ MoodPal is a mental health companion application built with Streamlit that helps
 - **Mood Insights**: Provides a summary of dominant emotions and average mood scores, visualized with trend charts.  
 - **Dark Mode**: Offers a toggleable dark theme for better readability and user comfort.  
 
-# **Prerequisites**  
+### **Prerequisites**  
 - Python 3.8 or higher  
 - Required libraries: `pandas`, `scikit-learn`, `nltk`, `streamlit`, `plotly`, `reportlab`, `pygame`  
 - Model files: `moodpal_model.pkl` and `moodpal_vectorizer.pkl` (generated via `train_model.py`)  
 - Sound files: `sounds/calming_song1.mp3`, `sounds/calming_song2.mp3`, `sounds/upbeat_song1.mp3`, `sounds/upbeat_song2.mp3`  
 - Optional: `moodpal_logo.png` and `icons/{emotion}.png` for branding and visuals  
 
-# **Installation**  
+### **Installation**  
 1. Clone the repository or download the `moodpal.py` file.  
 2. Install the required dependencies:  
 
@@ -34,7 +34,7 @@ MoodPal is a mental health companion application built with Streamlit that helps
 4. Place the model files (`moodpal_model.pkl`, `moodpal_vectorizer.pkl`) and sound files in the project directory.  
 5. (Optional) Add `moodpal_logo.png` to the project directory and emotion-specific icons (`icons/`) for enhanced visuals.  
 
-# **Usage**  
+### **Usage**  
 1. Run the application:  
 
    streamlit run moodpal.py  
@@ -51,7 +51,7 @@ MoodPal is a mental health companion application built with Streamlit that helps
    - Mood journal export  
 7. Toggle "Dark Mode" for a different theme, or click "Start Over" to reset.  
 
-# **Development Notes**  
+### **Development Notes**  
 - The app uses a pre-trained MultinomialNB model with TF-IDF vectorization for emotion prediction.  
 - Emotion detection combines VADER sentiment scores with emoji-based adjustments.  
 - The code handles session state to maintain user progress across interactions.  
